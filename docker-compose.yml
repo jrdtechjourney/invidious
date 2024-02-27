@@ -1,23 +1,15 @@
-# Warning: This docker-compose file is made for development purposes.
-# Using it will build an image from the locally cloned repository.
-#
-# If you want to use Invidious in production, see the docker-compose.yml file provided
-# in the installation documentation: https://docs.invidious.io/installation/
 
 version: "3"
 services:
 
   invidious:
-    build:
-      context: .
-      dockerfile: docker/Dockerfile
+    image: quay.io/invidious/invidious:latest
+    container_name: invidious
     restart: unless-stopped
-    ports:
-      - "127.0.0.1:3000:3000"
+    expose:
+      - "${SERVER_LB_PORT}"
+    env_file: .env
     environment:
-      # Please read the following file for a comprehensive list of all available
-      # configuration options and their associated syntax:
-      # https://github.com/iv-org/invidious/blob/master/config/config.example.yml
       INVIDIOUS_CONFIG: |
         db:
           dbname: invidious
@@ -26,26 +18,40 @@ services:
           host: invidious-db
           port: 5432
         check_tables: true
-        # external_port:
-        # domain:
-        # https_only: false
-        # statistics_enabled: false
-        hmac_key: "CHANGE_ME!!"
+        hmac_key: "552a1795210030240ca008832bd86e49a6b2b314b7a958b9e6a075517ddfc9f8"
     healthcheck:
       test: wget -nv --tries=1 --spider http://127.0.0.1:3000/api/v1/comments/jNQXAC9IVRw || exit 1
       interval: 30s
       timeout: 5s
       retries: 2
+    networks:
+      - ${NETWORK}
+      - invidious
     depends_on:
       - invidious-db
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=proxy"
+      - "traefik.http.routers.invidious.tls=true"
+      - "traefik.http.routers.invidious.entrypoints=websecure"
+      - "traefik.http.routers.invidious.rule=Host(`${SUBDOMAIN}.${DOMAIN}`)"
+      - "traefik.http.services.invidious.loadbalancer.server.port=${SERVER_LB_PORT}"
+      - "traefik.http.routers.invidious.tls.certresolver=${CERTRESOLVER}" 
+      - "traefik.http.services.invidious.loadbalancer.sticky.cookie.httpOnly=true"
+      - "traefik.http.services.invidious.loadbalancer.sticky.cookie.secure=true"
+      - "traefik.http.routers.invidious.middlewares=traefik-auth@file"
+      #,internal-srv@file"
 
   invidious-db:
-    image: docker.io/library/postgres:14
+    image: docker.io/library/postgres:${POST_TAGS}
     restart: unless-stopped
+    container_name: invidious-db
     volumes:
-      - postgresdata:/var/lib/postgresql/data
-      - ./config/sql:/config/sql
+      - ./src/data/postgresdata:/var/lib/postgresql/data
+      - ./src/config/sql:/config/sql
       - ./docker/init-invidious-db.sh:/docker-entrypoint-initdb.d/init-invidious-db.sh
+    networks:
+      - invidious
     environment:
       POSTGRES_DB: invidious
       POSTGRES_USER: kemal
@@ -53,5 +59,10 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
 
-volumes:
-  postgresdata:
+networks:
+  proxy:
+    external: true
+  invidious:
+    ipam:
+      config:
+        - subnet: 172.16.21.0/24

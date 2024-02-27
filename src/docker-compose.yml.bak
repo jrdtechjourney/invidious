@@ -1,0 +1,74 @@
+
+version: "3"
+services:
+
+  invidious:
+    image: quay.io/invidious/invidious:latest
+    restart: unless-stopped
+    expose:
+      - "3000"
+    #ports:
+    #  - "127.0.0.1:3000:3000"
+    env_file: .env
+    environment:
+      INVIDIOUS_CONFIG: |
+        db:
+          dbname: invidious
+          user: kemal
+          password: kemal
+          host: invidious-db
+          port: 5432
+        check_tables: true
+        # external_port: 443
+        # domain: http://invidious.aida.server.jeffreyramirez.net
+        # https_only: false
+        # statistics_enabled: false
+        hmac_key: "552a1795210030240ca008832bd86e49a6b2b314b7a958b9e6a075517ddfc9f8"
+    healthcheck:
+      test: wget -nv --tries=1 --spider http://127.0.0.1:3000/api/v1/comments/jNQXAC9IVRw || exit 1
+      interval: 30s
+      timeout: 5s
+      retries: 2
+    networks:
+      - proxy
+      #${NETWORK}
+      - invidious
+    depends_on:
+      - invidious-db
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=proxy"
+      - "traefik.http.routers.invidious.tls=true"
+      - "traefik.http.routers.invidious.entrypoints=websecure"
+      - "traefik.http.routers.invidious.rule=Host(`${SUBDOMAIN}.${DOMAIN}`)"
+      - "traefik.http.services.invidious.loadbalancer.server.port=3000"
+      #${SERVER_LB_PORT}"
+      - "traefik.http.routers.invidious.tls.certresolver=${CERTRESOLVER}" 
+      #- "traefik.http.services.invidious.loadbalancer.sticky.cookie.httpOnly=true"
+      #- "traefik.http.services.invidious.loadbalancer.sticky.cookie.secure=true"
+      - "traefik.http.routers.invidious.middlewares=traefik-auth@file"
+      #internal-srv@file"
+
+  invidious-db:
+    image: docker.io/library/postgres:${POST_TAGS}
+    restart: unless-stopped
+    volumes:
+      - ./src/data/postgresdata:/var/lib/postgresql/data
+      - ./src/config/sql:/config/sql
+      - ./docker/init-invidious-db.sh:/docker-entrypoint-initdb.d/init-invidious-db.sh
+    networks:
+      - invidious
+    environment:
+      POSTGRES_DB: invidious
+      POSTGRES_USER: kemal
+      POSTGRES_PASSWORD: kemal
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
+
+networks:
+  proxy:
+    external: true
+  invidious:
+    ipam:
+      config:
+        - subnet: 172.16.21.0/24
