@@ -1,5 +1,11 @@
+networks:
+  proxy:
+    external: true
+  invidious:
+    ipam:
+      config:
+        - subnet: 172.16.21.0/24
 
-version: "3"
 services:
 
   invidious:
@@ -59,10 +65,4 @@ services:
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
 
-networks:
-  proxy:
-    external: true
-  invidious:
-    ipam:
-      config:
-        - subnet: 172.16.21.0/24
+
